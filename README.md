@@ -17,7 +17,7 @@ Ensure you have the following installed on your local machine:
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/trello-clone.git
+git clone https://github.com/Serg-Kochkin/mini-trello-front.git
 cd trello-clone
 ```
 
@@ -37,28 +37,26 @@ After running the above command, open your browser and navigate to http://localh
 
 ## How It Works (Frontend)
 
+### View
+
+The main component that has a logic to view a UI part.
+
 ### Board
 
-The main view is a board that displays a series of lists. Each list represents a collection of tasks/cards, similar to Trello.
+The Board component that displays a series of Columns. Each list represents a collection of cards, similar to Trello.
 
-### Lists & Cards
+### Columns
 
-Lists: These are columns that hold a set of cards. Examples include "To Do", "In Progress", and "Done".
+These are columns that hold a set of cards. Examples include "To Do", "In Progress", and "Done".
 
-### Cards: Represent individual tasks. Users can drag and drop cards within a list or between different lists.
+### Cards
+
+Represent individual tasks. Users can drag and drop cards within a list or between different Columns.
 
 ### Drag & Drop
 
-Implemented using react-beautiful-dnd, this feature allows users to drag cards between and within lists smoothly with intuitive animations.
+Implemented using react-beautiful-dnd, this feature allows users to drag cards between and within Columns smoothly with intuitive animations.
 
-### Contributing
+### Apollo Client
 
-If you'd like to contribute, please fork the repository and make changes as you'd like. Pull requests are warmly welcome.
-
-### Issues
-
-If you find a bug or think something could be improved, please submit an issue.
-
-### License
-
-This project is open source and available under the MIT License.
+Apollo Client is a state management library that enables to management of both local and remote data with GraphQL.

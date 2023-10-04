@@ -1,164 +1,247 @@
-import React, { useState } from "react";
+import React from "react";
 import Board from "./Board";
 import MTContext from "../context/MTContext";
-// import { useQuery } from "@apollo/client";
-// import { GET_DATA } from "../queries";
+import { useQuery, useMutation } from "@apollo/client";
+import { TRELLO } from "../graphql/queries";
+import {
+  CREATE_CARD,
+  DELETE_CARD,
+  UPDATE_CARD_CONTENT,
+  UPDATE_MULTIPLE_CARD_ORDER,
+} from "../graphql/mutations";
 
 function View() {
-  const [data, setData] = useState({
-    lists: [
-      { id: "list-1", title: "TODO", cardIds: ["card-1", "card-2"] },
-      { id: "list-2", title: "In Progress", cardIds: ["card-3"] },
-      { id: "list-3", title: "Done", cardIds: ["card-4"] },
-    ],
-    cards: {
-      "card-1": { id: "card-1", content: "Card #1" },
-      "card-2": { id: "card-2", content: "Card #2" },
-      "card-3": { id: "card-3", content: "Card #3" },
-      "card-4": { id: "card-4", content: "Card #4" },
+  const { loading, error, data } = useQuery(TRELLO);
+
+  const [updateMultipleCardOrder] = useMutation(UPDATE_MULTIPLE_CARD_ORDER, {
+    update: (cache, { data: { updateMultipleCardOrder } }) => {
+      const existingData = cache.readQuery({ query: TRELLO });
+
+      const updatedCards =
+        updateMultipleCardOrder && updateMultipleCardOrder.cards;
+
+      if (updatedCards) {
+        const newCards = existingData.trello.cards.map((card) => {
+          const updatedCard = updatedCards.find(
+            (uCard) => uCard.cardId === card.cardId
+          );
+          return updatedCard || card;
+        });
+
+        const newData = {
+          trello: {
+            ...existingData.trello,
+            cards: newCards,
+          },
+        };
+
+        cache.writeQuery({ query: TRELLO, data: newData });
+      }
     },
   });
-  // const { loading, error, data } = useQuery(GET_DATA);
 
-  // if (loading) return "Loading...";
-  // if (error) return `Error: ${error.message}`;
+  const [updateCardContent] = useMutation(UPDATE_CARD_CONTENT, {
+    update: (cache, { data: { updateCardContent } }) => {
+      const existingData = cache.readQuery({ query: TRELLO });
+
+      const updatedCards = existingData.trello.cards.map((card) =>
+        card.cardId === updateCardContent.cardId ? updateCardContent : card
+      );
+
+      const newData = {
+        trello: {
+          ...existingData.trello,
+          cards: updatedCards,
+        },
+      };
+
+      cache.writeQuery({ query: TRELLO, data: newData });
+    },
+  });
+
+  const [createCard] = useMutation(CREATE_CARD, {
+    update: (cache, { data: { createCard } }) => {
+      const existingData = cache.readQuery({ query: TRELLO });
+
+      const newData = {
+        trello: {
+          ...existingData.trello,
+          cards: [...existingData.trello.cards, createCard.card],
+        },
+      };
+
+      cache.writeQuery({ query: TRELLO, data: newData });
+    },
+  });
+
+  const [deleteCard] = useMutation(DELETE_CARD, {
+    update: (cache, { data }) => {
+      if (data?.deleteCard?.cardId) {
+        const existingData = cache.readQuery({ query: TRELLO });
+
+        const filteredCards = existingData.trello.cards.filter(
+          (card) => card.cardId !== data.deleteCard.cardId
+        );
+
+        const newData = {
+          trello: {
+            ...existingData.trello,
+            cards: filteredCards,
+          },
+        };
+
+        cache.writeQuery({ query: TRELLO, data: newData });
+      }
+    },
+  });
+
+  if (loading) return "Loading...";
+  if (error) return `Error: ${error.message}`;
 
   const onDragEnd = (result) => {
     const { source, destination } = result;
 
-    // If the element was not moved to a valid target or moved back to its place
-    if (!destination) {
+    if (
+      !destination ||
+      (source.droppableId === destination.droppableId &&
+        source.index === destination.index)
+    ) {
       return;
     }
 
-    const startList = data.lists.find((list) => list.id === source.droppableId);
-    const finishList = data.lists.find(
-      (list) => list.id === destination.droppableId
+    const startColumn = data.trello.columns.find(
+      (column) => column.columnId === source.droppableId
     );
 
-    // Moving within the same list
-    if (startList === finishList) {
-      const newCardIds = Array.from(startList.cardIds);
-      const [movedCard] = newCardIds.splice(source.index, 1);
-      newCardIds.splice(destination.index, 0, movedCard);
+    const finishColumn = data.trello.columns.find(
+      (column) => column.columnId === destination.droppableId
+    );
 
-      const updatedList = {
-        ...startList,
-        cardIds: newCardIds,
-      };
+    // Moving within the same column
+    if (startColumn === finishColumn) {
+      const cardsInColumn = data.trello.cards
+        .filter((card) => card.columnId === source.droppableId)
+        .sort((a, b) => a.order - b.order);
 
-      const updatedData = {
-        ...data,
-        lists: data.lists.map((list) =>
-          list.id === updatedList.id ? updatedList : list
-        ),
-      };
-      console.log("ORDER", updatedData);
-      // setData(updatedData);
-      return;
+      const draggedCard = cardsInColumn[source.index];
+
+      cardsInColumn.splice(source.index, 1);
+      cardsInColumn.splice(destination.index, 0, draggedCard);
+
+      const updatedCards = cardsInColumn.map((card, index) => ({
+        cardId: card.cardId,
+        columnId: card.columnId,
+        cardContent: card.cardContent,
+        order: index,
+      }));
+
+      updateMultipleCardOrder({ variables: { cardsInput: updatedCards } });
+    } else {
+      // Moving between different columns
+      const startCards = data.trello.cards
+        .filter((card) => card.columnId === source.droppableId)
+        .sort((a, b) => a.order - b.order);
+
+      const finishCards = data.trello.cards
+        .filter((card) => card.columnId === destination.droppableId)
+        .sort((a, b) => a.order - b.order);
+
+      const draggedCard = startCards[source.index];
+      startCards.splice(source.index, 1);
+      finishCards.splice(destination.index, 0, draggedCard);
+
+      const updatedStartCards = startCards
+        .map((card, index) => {
+          if (!card) {
+            console.error("Undefined card in startCards at index:", index);
+            return null;
+          }
+          return {
+            cardId: card.cardId,
+            columnId: card.columnId,
+            cardContent: card.cardContent,
+            order: index,
+          };
+        })
+        .filter(Boolean);
+
+      const updatedFinishCards = finishCards
+        .map((card, index) => {
+          if (!card) {
+            console.error("Undefined card in finishCards at index:", index);
+            return null;
+          }
+          return {
+            cardId: card.cardId,
+            columnId: destination.droppableId,
+            cardContent: card.cardContent,
+            order: index,
+          };
+        })
+        .filter(Boolean);
+
+      updateMultipleCardOrder({
+        variables: {
+          cardsInput: [...updatedStartCards, ...updatedFinishCards],
+        },
+      });
     }
-
-    // Moving between different lists
-    const startCardIds = Array.from(startList.cardIds);
-    const [movedCard] = startCardIds.splice(source.index, 1);
-    const updatedStartList = {
-      ...startList,
-      cardIds: startCardIds,
-    };
-
-    const finishCardIds = Array.from(finishList.cardIds);
-    finishCardIds.splice(destination.index, 0, movedCard);
-    const updatedFinishList = {
-      ...finishList,
-      cardIds: finishCardIds,
-    };
-
-    const updatedData = {
-      ...data,
-      lists: data.lists.map((list) => {
-        if (list.id === updatedStartList.id) return updatedStartList;
-        if (list.id === updatedFinishList.id) return updatedFinishList;
-        return list;
-      }),
-    };
-    console.log("Columns", updatedData);
-    setData(updatedData);
   };
 
-  const handleAddCard = (listId) => {
-    const newCardId = "card-" + (Math.random() * 1000).toFixed(0);
-    const newCard = {
-      id: newCardId,
-      content: prompt("Enter card content"),
-    };
+  const handleAddCard = (columnId) => {
+    const columnCards = data.trello.cards.filter(
+      (card) => card.columnId === columnId
+    );
 
-    const list = data.lists.find((l) => l.id === listId);
-    list.cardIds.push(newCardId);
+    const nextOrder =
+      columnCards.length > 0
+        ? Math.max(...columnCards.map((card) => card.order)) + 1
+        : 0;
 
-    setData({
-      ...data,
-      cards: {
-        ...data.cards,
-        [newCardId]: newCard,
-      },
-    });
+    const content = prompt("Enter card content");
+    if (content) {
+      createCard({
+        variables: {
+          content: content,
+          columnId: columnId,
+          order: nextOrder,
+        },
+      });
+    }
   };
 
-  const handleRemoveCard = (cardId) => {
-    const newCards = { ...data.cards };
-    delete newCards[cardId];
-
-    const lists = data.lists.map((list) => {
-      return {
-        ...list,
-        cardIds: list.cardIds.filter((id) => id !== cardId),
-      };
-    });
-
-    setData({
-      ...data,
-      cards: newCards,
-      lists: lists,
-    });
+  const handleDeleteCard = (cardIdToDelete) => {
+    deleteCard({ variables: { cardId: cardIdToDelete } });
   };
-
   const handleUpdateCard = (cardId) => {
-    const newContent = prompt(
-      "Update card content",
-      data.cards[cardId].content
-    );
+    const cards = data.trello.cards;
+    const currentContent = cards.find(
+      (card) => card.cardId === cardId
+    )?.cardContent;
+    const newContent = prompt("Update card content", currentContent);
 
-    if (newContent) {
-      const updatedCard = {
-        ...data.cards[cardId],
-        content: newContent,
-      };
-
-      setData({
-        ...data,
-        cards: {
-          ...data.cards,
-          [cardId]: updatedCard,
+    if (newContent && newContent !== currentContent) {
+      updateCardContent({
+        variables: {
+          cardId: cardId,
+          cardContent: newContent,
         },
       });
     }
   };
 
   return (
-    <div>
-      <h1 className="text-3xl font-bold m-4">Mini Trello</h1>
-      <MTContext.Provider
-        value={{
-          data,
-          handleAddCard,
-          handleRemoveCard,
-          handleUpdateCard,
-          onDragEnd,
-        }}
-      >
-        <Board />
-      </MTContext.Provider>
-    </div>
+    <MTContext.Provider
+      value={{
+        data,
+        handleAddCard,
+        handleDeleteCard,
+        handleUpdateCard,
+        onDragEnd,
+      }}
+    >
+      <Board />
+    </MTContext.Provider>
   );
 }
 
